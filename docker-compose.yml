@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: framz_postgres
+    restart: always
+    environment:
+      POSTGRES_DB: framz_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: framz_secure_vps_password_2026
+    ports:
+      - "127.0.0.1:5432:5432" # Bound to localhost only, not exposed to internet
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/src/db/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: framz_backend
+    restart: always
+    environment:
+      PORT: 4000
+      DATABASE_URL: postgres://postgres:framz_secure_vps_password_2026@postgres:5432/framz_db
+      JWT_SECRET: framz_vps_jwt_secret_key_prod_2026
+    depends_on:
+      - postgres
+
+  nginx:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: framz_nginx
+    restart: always
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:

@@ -1,0 +1,22 @@
+# Node / Backend
+backend/node_modules/
+backend/dist/
+backend/data/*.sqlite
+backend/data/*.json
+backend/.env
+
+# Flutter / Frontend
+frontend/.dart_tool/
+frontend/.flutter-plugins
+frontend/.flutter-plugins-dependencies
+frontend/build/
+frontend/.packages
+frontend/.pub-cache/
+frontend/.pub/
+
+# System and IDE
+.DS_Store
+*.swp
+*.lock
+.idea/
+.vscode/
