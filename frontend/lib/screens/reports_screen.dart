@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../services/api_service.dart';
 
@@ -26,9 +27,16 @@ class ReportsScreen extends StatefulWidget {
 }
 
 class _ReportsScreenState extends State<ReportsScreen> {
-  String _selectedPeriod = 'quarterly';
+  String _selectedPeriod = 'weekly';
   Map<String, dynamic>? _data;
   bool _isLoading = true;
+
+  final List<Map<String, String>> _periods = [
+    {'id': 'weekly', 'label': 'Weekly Report', 'title': 'Weekly Church Ministry Report'},
+    {'id': 'monthly', 'label': 'Monthly Review', 'title': 'Monthly Church Growth Review'},
+    {'id': 'quarterly', 'label': 'Quarterly Review', 'title': 'Quarterly Executive Review'},
+    {'id': 'yearly', 'label': 'Annual Report', 'title': 'Annual Church Ministry Report'},
+  ];
 
   @override
   void initState() {
@@ -47,6 +55,79 @@ class _ReportsScreenState extends State<ReportsScreen> {
     }
   }
 
+  void _copyWhatsAppReport() {
+    if (_data == null) return;
+    final currencyFmt = NumberFormat.currency(symbol: '₦', decimalDigits: 0);
+    final periodTitle = _periods.firstWhere((p) => p['id'] == _selectedPeriod)['title'] ?? 'Church Report';
+    final dateStr = DateFormat('MMMM dd, yyyy').format(DateTime.now());
+
+    final sundayAtt = _data!['sundayAttendance'] ?? {};
+    final midweekAtt = _data!['midweekAttendance'] ?? {};
+    final membership = _data!['membership'] ?? {};
+    final financials = _data!['financials'];
+    final cells = (_data!['cellBreakdown'] as List<dynamic>?) ?? [];
+
+    final buffer = StringBuffer();
+    buffer.writeln('⛪ *CHRIST EMBASSY - $periodTitle*');
+    buffer.writeln('📅 Date: $dateStr');
+    buffer.writeln('━━━━━━━━━━━━━━━━━━━━━━━');
+    buffer.writeln('👥 *SERVICE ATTENDANCE:*');
+    buffer.writeln('• Sunday Service Avg: ${_toInt(sundayAtt['currentAverage'])} (Growth: ${_toDouble(sundayAtt['growthPercentage'])}%)');
+    if (midweekAtt['currentAverage'] != null) {
+      buffer.writeln('• Midweek Service Avg: ${_toInt(midweekAtt['currentAverage'])} (Growth: ${_toDouble(midweekAtt['growthPercentage'])}%)');
+    }
+    buffer.writeln('');
+    buffer.writeln('🌟 *SOUL WINNING & RETENTION:*');
+    buffer.writeln('• Active Members: ${_toInt(membership['active'])}');
+    buffer.writeln('• New Converts Added: ${_toInt(membership['newConverts'])}');
+    buffer.writeln('• First Time Visitors: ${_toInt(membership['firstTimers'])}');
+    buffer.writeln('• Total Registered: ${_toInt(membership['total'])}');
+
+    if (financials != null) {
+      buffer.writeln('');
+      buffer.writeln('💰 *FINANCIAL COLLECTIONS:*');
+      buffer.writeln('• Total Inflow: ${currencyFmt.format(_toDouble(financials['currentTotal']))} (${_toDouble(financials['growthPercentage'])}% vs prior)');
+      final breakdown = (financials['offeringBreakdown'] as List<dynamic>?) ?? [];
+      for (final item in breakdown) {
+        final type = (item['offering_type'] ?? '').toString().replaceAll('_', ' ');
+        buffer.writeln('  - $type: ${currencyFmt.format(_toDouble(item['total_amount']))}');
+      }
+    }
+
+    if (cells.isNotEmpty) {
+      buffer.writeln('');
+      buffer.writeln('🏢 *CELL MINISTRY RANKING:*');
+      for (final c in cells) {
+        buffer.writeln('• ${c['name']} (${c['leaderName'] ?? 'Leader'}): ${c['memberCount']} members');
+      }
+    }
+
+    buffer.writeln('━━━━━━━━━━━━━━━━━━━━━━━');
+    buffer.writeln('Generated via *Framz Reporting System*');
+
+    Clipboard.setData(ClipboardData(text: buffer.toString()));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: const Color(0xFF10B981),
+        behavior: SnackBarBehavior.floating,
+        content: Row(
+          children: const [
+            Icon(Icons.check_circle, color: Colors.white, size: 20),
+            SizedBox(width: 10),
+            Expanded(child: Text('WhatsApp Church Report copied! Ready to paste into chat.', style: TextStyle(fontWeight: FontWeight.bold))),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _updateFollowUp(int memberId, String newStage) async {
+    final success = await ApiService.updateFollowUpStage(memberId, newStage);
+    if (success) {
+      _loadReport();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final currencyFmt = NumberFormat.currency(symbol: '₦', decimalDigits: 0);
@@ -58,52 +139,58 @@ class _ReportsScreenState extends State<ReportsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Responsive Top Header
+            // Responsive Hierarchy Selector Bar & Action Button
             LayoutBuilder(
               builder: (context, constraints) {
-                final isWide = constraints.maxWidth > 650;
-                final headerText = Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: const [
-                    Text(
-                      'Executive Church Reports',
-                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                final isWide = constraints.maxWidth > 700;
+
+                final periodButtons = SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1E293B),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.white12),
                     ),
-                    SizedBox(height: 2),
-                    Text(
-                      'Automated Quarterly & Annual Summary Reviews',
-                      style: TextStyle(color: Colors.grey, fontSize: 12),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                    child: Row(
+                      children: _periods.map((p) {
+                        final isSelected = _selectedPeriod == p['id'];
+                        return GestureDetector(
+                          onTap: () {
+                            setState(() => _selectedPeriod = p['id']!);
+                            _loadReport();
+                          },
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 200),
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: isSelected ? const Color(0xFF2563EB) : Colors.transparent,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              p['label']!,
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                color: isSelected ? Colors.white : slateColor,
+                              ),
+                            ),
+                          ),
+                        );
+                      }).toList(),
                     ),
-                  ],
+                  ),
                 );
 
-                final periodDropdown = Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1E293B),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: Colors.white12),
-                  ),
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<String>(
-                      value: _selectedPeriod,
-                      dropdownColor: const Color(0xFF1E293B),
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
-                      items: const [
-                        DropdownMenuItem(value: 'quarterly', child: Text('Q3 2026 Review')),
-                        DropdownMenuItem(value: 'yearly', child: Text('Annual 2026 Review')),
-                      ],
-                      onChanged: (val) {
-                        if (val != null) {
-                          setState(() => _selectedPeriod = val);
-                          _loadReport();
-                        }
-                      },
-                    ),
+                final whatsappBtn = ElevatedButton.icon(
+                  onPressed: _data == null ? null : _copyWhatsAppReport,
+                  icon: const Icon(Icons.share_rounded, size: 16, color: Colors.white),
+                  label: const Text('Copy WhatsApp Summary', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF10B981),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                   ),
                 );
 
@@ -111,18 +198,17 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   return Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Expanded(child: headerText),
-                      const SizedBox(width: 12),
-                      periodDropdown,
+                      periodButtons,
+                      whatsappBtn,
                     ],
                   );
                 } else {
                   return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      headerText,
+                      periodButtons,
                       const SizedBox(height: 10),
-                      periodDropdown,
+                      whatsappBtn,
                     ],
                   );
                 }
@@ -147,7 +233,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Report Header (Overflow-safe)
+                        // Report Header Banner
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -156,16 +242,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    _selectedPeriod == 'quarterly'
-                                        ? 'Quarterly Executive Growth Report'
-                                        : 'Annual Church Report',
-                                    style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.white),
+                                    _periods.firstWhere((p) => p['id'] == _selectedPeriod)['title'] ?? 'Church Ministry Report',
+                                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                   const SizedBox(height: 3),
                                   Text(
-                                    'Compiled on ${DateFormat('MMMM dd, yyyy').format(DateTime.now())}',
+                                    'Period: ${_selectedPeriod.toUpperCase()} • Generated ${DateFormat('MMMM dd, yyyy').format(DateTime.now())}',
                                     style: const TextStyle(color: slateColor, fontSize: 11),
                                   ),
                                 ],
@@ -178,38 +262,50 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                 color: const Color(0xFF3B82F6).withValues(alpha: 0.2),
                                 borderRadius: BorderRadius.circular(6),
                               ),
-                              child: const Text(
-                                'OFFICIAL',
-                                style: TextStyle(color: Color(0xFF3B82F6), fontWeight: FontWeight.bold, fontSize: 10),
+                              child: Text(
+                                _selectedPeriod.toUpperCase(),
+                                style: const TextStyle(color: Color(0xFF3B82F6), fontWeight: FontWeight.bold, fontSize: 10),
                               ),
                             ),
                           ],
                         ),
                         const Divider(color: Colors.white12, height: 28),
 
-                        // Section 1: Attendance Growth
+                        // Section 1: Service Attendance Breakdown
                         _sectionTitle('1. Service Attendance Metrics'),
                         const SizedBox(height: 10),
                         _metricRow(
-                          'Average Sunday Attendance',
+                          'Sunday Service Average',
                           '${_toInt(_data!['sundayAttendance']?['currentAverage'])} attendees',
                         ),
                         _metricRow(
-                          'Prior Period Average Sunday',
+                          'Prior Period Sunday Average',
                           '${_toInt(_data!['sundayAttendance']?['previousAverage'])} attendees',
                         ),
                         _metricRow(
-                          'Sunday Attendance Shift',
+                          'Sunday Growth Momentum',
                           '${_toDouble(_data!['sundayAttendance']?['growthPercentage'])}%',
                           isHighlight: true,
                         ),
+                        if (_data!['midweekAttendance'] != null) ...[
+                          const SizedBox(height: 8),
+                          _metricRow(
+                            'Midweek Bible Study Average',
+                            '${_toInt(_data!['midweekAttendance']?['currentAverage'])} attendees',
+                          ),
+                          _metricRow(
+                            'Midweek Growth Momentum',
+                            '${_toDouble(_data!['midweekAttendance']?['growthPercentage'])}%',
+                            isHighlight: true,
+                          ),
+                        ],
                         const SizedBox(height: 20),
 
-                        // Section 2: Membership Expansion
-                        _sectionTitle('2. Membership Retention & Additions'),
+                        // Section 2: Membership & Soul Winning
+                        _sectionTitle('2. Soul Winning & Retention'),
                         const SizedBox(height: 10),
                         _metricRow(
-                          'Active Registered Members',
+                          'Active Church Members',
                           '${_toInt(_data!['membership']?['active'])} members',
                         ),
                         _metricRow(
@@ -221,14 +317,120 @@ class _ReportsScreenState extends State<ReportsScreen> {
                           '${_toInt(_data!['membership']?['firstTimers'])} visitors',
                         ),
                         _metricRow(
-                          'Inactive Members',
+                          'Inactive Members (Follow-up list)',
                           '${_toInt(_data!['membership']?['inactive'])} members',
                         ),
                         const SizedBox(height: 20),
 
-                        // Section 3: Financial Contributions
+                        // Section 3: Cell Ministry Ranking Leaderboard
+                        if (_data!['cellBreakdown'] != null && (_data!['cellBreakdown'] as List).isNotEmpty) ...[
+                          _sectionTitle('3. Cell Group Growth Leaderboard'),
+                          const SizedBox(height: 10),
+                          ...(_data!['cellBreakdown'] as List).map((cell) {
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 4.0),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Expanded(
+                                    child: Row(
+                                      children: [
+                                        const Icon(Icons.hub_rounded, size: 16, color: Color(0xFF3B82F6)),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            '${cell['name']} (${cell['leaderName'] ?? 'Leader'})',
+                                            style: const TextStyle(color: Colors.white, fontSize: 13),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF3B82F6).withValues(alpha: 0.15),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Text(
+                                      '${cell['memberCount']} members',
+                                      style: const TextStyle(color: Color(0xFF3B82F6), fontWeight: FontWeight.bold, fontSize: 11),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }),
+                          const SizedBox(height: 20),
+                        ],
+
+                        // Section 4: First-Timer Follow-Up Pipeline
+                        if (_data!['firstTimersList'] != null && (_data!['firstTimersList'] as List).isNotEmpty) ...[
+                          _sectionTitle('4. First-Timer & New Convert Pipeline'),
+                          const SizedBox(height: 10),
+                          ...(_data!['firstTimersList'] as List).map((ft) {
+                            final currentStage = ft['followUpStage'] ?? 'PENDING';
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF0F172A),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: Colors.white10),
+                              ),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          '${ft['fullName']} (${ft['status'].toString().replaceAll('_', ' ')})',
+                                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        Text(
+                                          'Phone: ${ft['phone']} • Cell: ${ft['cellName']}',
+                                          style: const TextStyle(color: slateColor, fontSize: 11),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  DropdownButtonHideUnderline(
+                                    child: DropdownButton<String>(
+                                      value: ['PENDING', 'CONTACTED', 'VISITED', 'FOUNDATION_SCHOOL', 'JOINED_CELL', 'BAPTIZED'].contains(currentStage)
+                                          ? currentStage
+                                          : 'PENDING',
+                                      dropdownColor: const Color(0xFF1E293B),
+                                      style: const TextStyle(color: Color(0xFF10B981), fontWeight: FontWeight.bold, fontSize: 11),
+                                      items: const [
+                                        DropdownMenuItem(value: 'PENDING', child: Text('Pending')),
+                                        DropdownMenuItem(value: 'CONTACTED', child: Text('Contacted')),
+                                        DropdownMenuItem(value: 'VISITED', child: Text('Visited')),
+                                        DropdownMenuItem(value: 'FOUNDATION_SCHOOL', child: Text('Foundation Sch')),
+                                        DropdownMenuItem(value: 'JOINED_CELL', child: Text('Joined Cell')),
+                                        DropdownMenuItem(value: 'BAPTIZED', child: Text('Baptized')),
+                                      ],
+                                      onChanged: (val) {
+                                        if (val != null) {
+                                          _updateFollowUp(ft['id'], val);
+                                        }
+                                      },
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }),
+                          const SizedBox(height: 20),
+                        ],
+
+                        // Section 5: Financial Summary
                         if (_data!['financials'] != null) ...[
-                          _sectionTitle('3. Financial Offerings & Tithes'),
+                          _sectionTitle('5. Financial Offerings & Tithes'),
                           const SizedBox(height: 10),
                           _metricRow(
                             'Total Period Financial Collection',
@@ -243,6 +445,23 @@ class _ReportsScreenState extends State<ReportsScreen> {
                             '${_toDouble(_data!['financials']?['growthPercentage'])}%',
                             isHighlight: true,
                           ),
+                          const SizedBox(height: 10),
+                          const Text('Breakdown by Offering Category:', style: TextStyle(color: slateColor, fontSize: 12)),
+                          const SizedBox(height: 6),
+                          ...((_data!['financials']?['offeringBreakdown'] as List<dynamic>?) ?? []).map((item) {
+                            final type = (item['offering_type'] ?? '').toString().replaceAll('_', ' ');
+                            final amt = _toDouble(item['total_amount']);
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 2.0),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text('  • $type', style: const TextStyle(color: slateColor, fontSize: 12)),
+                                  Text(currencyFmt.format(amt), style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                                ],
+                              ),
+                            );
+                          }),
                         ],
                       ],
                     ),

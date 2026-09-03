@@ -42,21 +42,38 @@ router.get('/', authenticateToken, async (req: AuthRequest, res: Response) => {
 // CREATE new member
 router.post('/', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
-    const { first_name, last_name, gender, phone, email, status, date_joined, cell_id, branch_id } = req.body;
+    const { first_name, last_name, gender, phone, email, status, follow_up_stage, date_joined, cell_id, branch_id } = req.body;
     if (!first_name || !last_name) {
       return res.status(400).json({ error: 'First name and last name are required' });
     }
 
     const memberStatus = status || 'ACTIVE';
+    const followStage = follow_up_stage || (memberStatus === 'FIRST_TIMER' || memberStatus === 'NEW_CONVERT' ? 'CONTACTED' : 'PENDING');
     const joinedDate = date_joined || new Date().toISOString().split('T')[0];
 
     const result = await query(
-      `INSERT INTO members (first_name, last_name, gender, phone, email, status, date_joined, cell_id, branch_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [first_name, last_name, gender || null, phone || null, email || null, memberStatus, joinedDate, cell_id || null, branch_id || req.user?.branch_id || null]
+      `INSERT INTO members (first_name, last_name, gender, phone, email, status, follow_up_stage, date_joined, cell_id, branch_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [first_name, last_name, gender || null, phone || null, email || null, memberStatus, followStage, joinedDate, cell_id || null, branch_id || req.user?.branch_id || null]
     );
 
     res.status(201).json({ message: 'Member added successfully', id: result[0]?.id });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// UPDATE follow-up stage directly
+router.patch('/:id/follow-up', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { follow_up_stage } = req.body;
+    if (!follow_up_stage) {
+      return res.status(400).json({ error: 'follow_up_stage is required' });
+    }
+
+    await query('UPDATE members SET follow_up_stage = ? WHERE id = ?', [follow_up_stage, id]);
+    res.json({ message: 'Follow-up stage updated successfully' });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -66,13 +83,13 @@ router.post('/', authenticateToken, async (req: AuthRequest, res: Response) => {
 router.put('/:id', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
-    const { first_name, last_name, gender, phone, email, status, cell_id, branch_id } = req.body;
+    const { first_name, last_name, gender, phone, email, status, follow_up_stage, cell_id, branch_id } = req.body;
 
     await query(
       `UPDATE members 
-       SET first_name = ?, last_name = ?, gender = ?, phone = ?, email = ?, status = ?, cell_id = ?, branch_id = ?
+       SET first_name = ?, last_name = ?, gender = ?, phone = ?, email = ?, status = ?, follow_up_stage = ?, cell_id = ?, branch_id = ?
        WHERE id = ?`,
-      [first_name, last_name, gender, phone, email, status, cell_id || null, branch_id || null, id]
+      [first_name, last_name, gender, phone, email, status, follow_up_stage || 'PENDING', cell_id || null, branch_id || null, id]
     );
 
     res.json({ message: 'Member updated successfully' });

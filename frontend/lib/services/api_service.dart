@@ -131,6 +131,19 @@ class ApiService {
     }
   }
 
+  static Future<bool> updateFollowUpStage(int memberId, String stage) async {
+    try {
+      final res = await http.patch(
+        Uri.parse('$_baseUrl/members/$memberId/follow-up'),
+        headers: await _headers(),
+        body: jsonEncode({'follow_up_stage': stage}),
+      );
+      return res.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
+
   // Attendance API
   static Future<List<dynamic>> getAttendances() async {
     try {

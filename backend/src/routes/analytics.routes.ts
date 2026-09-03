@@ -78,6 +78,47 @@ router.get('/dashboard', authenticateToken, async (req: AuthRequest, res: Respon
     const prevAvgSunday = Math.round(safeNum(prevSundayAtt[0]?.avg_attendance));
     const sundayGrowthPct = prevAvgSunday > 0 ? (((currAvgSunday - prevAvgSunday) / prevAvgSunday) * 100).toFixed(1) : '0';
 
+    // 3b. Midweek Attendance Metrics
+    const midweekServiceTypes = await query("SELECT id FROM service_types WHERE category = 'MIDWEEK'");
+    const midweekTypeId = midweekServiceTypes[0]?.id || 2;
+
+    const currentMidweekAtt = await query(
+      `SELECT AVG(headcount_male + headcount_female + headcount_children) as avg_attendance
+       FROM attendances 
+       WHERE service_type_id = ? AND event_date >= ?`,
+      [midweekTypeId, currStartStr]
+    );
+
+    const prevMidweekAtt = await query(
+      `SELECT AVG(headcount_male + headcount_female + headcount_children) as avg_attendance
+       FROM attendances 
+       WHERE service_type_id = ? AND event_date >= ? AND event_date <= ?`,
+      [midweekTypeId, prevStartStr, prevEndStr]
+    );
+
+    const currAvgMidweek = Math.round(safeNum(currentMidweekAtt[0]?.avg_attendance));
+    const prevAvgMidweek = Math.round(safeNum(prevMidweekAtt[0]?.avg_attendance));
+    const midweekGrowthPct = prevAvgMidweek > 0 ? (((currAvgMidweek - prevAvgMidweek) / prevAvgMidweek) * 100).toFixed(1) : '0';
+
+    // 3c. Cell Group Breakdown
+    const cellBreakdown = await query(`
+      SELECT c.id, c.name, c.leader_name, COUNT(m.id) as member_count
+      FROM cell_groups c
+      LEFT JOIN members m ON m.cell_id = c.id
+      GROUP BY c.id, c.name, c.leader_name
+      ORDER BY member_count DESC
+    `);
+
+    // 3d. Recent First Timers & New Converts Pipeline
+    const firstTimersList = await query(`
+      SELECT m.id, m.first_name, m.last_name, m.phone, m.status, m.follow_up_stage, m.date_joined, c.name as cell_name
+      FROM members m
+      LEFT JOIN cell_groups c ON m.cell_id = c.id
+      WHERE m.status IN ('FIRST_TIMER', 'NEW_CONVERT')
+      ORDER BY m.date_joined DESC, m.id DESC
+      LIMIT 10
+    `);
+
     // 4. Attendance Trends
     const rawTrends = await query(`
       SELECT 
@@ -153,6 +194,26 @@ router.get('/dashboard', authenticateToken, async (req: AuthRequest, res: Respon
         previousAverage: prevAvgSunday,
         growthPercentage: parseFloat(sundayGrowthPct)
       },
+      midweekAttendance: {
+        currentAverage: currAvgMidweek,
+        previousAverage: prevAvgMidweek,
+        growthPercentage: parseFloat(midweekGrowthPct)
+      },
+      cellBreakdown: cellBreakdown.map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        leaderName: c.leader_name,
+        memberCount: Math.round(safeNum(c.member_count))
+      })),
+      firstTimersList: firstTimersList.map((m: any) => ({
+        id: m.id,
+        fullName: `${m.first_name} ${m.last_name}`,
+        phone: m.phone || 'N/A',
+        status: m.status,
+        followUpStage: m.follow_up_stage || 'PENDING',
+        dateJoined: m.date_joined,
+        cellName: m.cell_name || 'Unassigned'
+      })),
       attendanceTrends: attendanceTrends.reverse(),
       financials: financialSummary
     });

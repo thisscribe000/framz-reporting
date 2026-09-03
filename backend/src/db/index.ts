@@ -156,6 +156,12 @@ export async function initDb() {
         }
       }
     }
+
+    // Migration check: ensure follow_up_stage exists on members
+    try {
+      db.run("ALTER TABLE members ADD COLUMN follow_up_stage VARCHAR(50) DEFAULT 'PENDING'");
+    } catch (_) {}
+
     persistLocalDb();
     console.log('[DB] SQLite schema initialized via sql.js.');
   }
